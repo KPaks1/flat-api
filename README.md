@@ -1,5 +1,9 @@
 # Flat Plant API
 
+> **Live:** `https://flat-plants-api.azurewebsites.net`
+> **Repo:** `https://github.com/KPaks1/flat-api`
+> **Deploys:** automatically on push to `master` via GitHub Actions
+
 Serverless Azure Functions API for a shared flat. Two things it does:
 
 1. **NFC plant watering** — each plant has an NFC sticker. Scanning it marks the plant as watered and pushes a notification to all flatmates' browsers (no app required).
@@ -140,7 +144,7 @@ curl -X DELETE https://<app>.azurewebsites.net/api/plants/bedroom-monstera
 
 ```bash
 RESOURCE_GROUP="flat-plants-rg"
-LOCATION="australiaeast"
+LOCATION="uksouth"
 STORAGE_ACCOUNT="flatplantsstore"   # must be globally unique, lowercase
 FUNCTION_APP="flat-plants-api"       # must be globally unique
 
@@ -195,6 +199,17 @@ func azure functionapp publish flat-plants-api --python
 | Azure Table Storage | ~$0.01 |
 | Azure Storage Queue | ~$0.00 |
 | **Total** | **~$0.02** |
+
+---
+
+## Todo
+
+- [ ] **Fix production startup** — functions returning 404 in production; Oryx build settings (`ENABLE_ORYX_BUILD`, `SCM_DO_BUILD_DURING_DEPLOYMENT`) added, redeployment in progress
+- [ ] **Program NFC stickers** — one per plant, URL format: `https://flat-plants-api.azurewebsites.net/api/nfc/<plant-id>`
+- [ ] **Add plants** — use `requests.http` in VS Code or curl to POST to `/api/plants`
+- [ ] **Onboard flatmates** — share `https://flat-plants-api.azurewebsites.net/api/subscribe` (note: subscribe whitelist set to `REDACTED_IP`)
+- [ ] **Watering token** — add a shared secret to the NFC URL (`?token=xxx`) to prevent anyone with the URL from triggering waterings
+- [ ] **Who watered tracking** — per-device tokens so notifications say which flatmate watered the plant
 
 ---
 
