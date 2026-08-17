@@ -1,0 +1,299 @@
+import json
+import logging
+import pathlib
+import re
+import os
+from datetime import datetime, timezone
+
+import azure.functions as func
+from lib import storage
+from lib import webpush as wp
+
+app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+logger = logging.getLogger(__name__)
+
+VAPID_PUBLIC_KEY = os.environ["VAPID_PUBLIC_KEY"]
+STATIC_DIR = pathlib.Path(__file__).parent / "static"
+
+_allowed_ips_raw = os.environ.get("ALLOWED_SUBSCRIBE_IPS", "")
+ALLOWED_SUBSCRIBE_IPS = {ip.strip() for ip in _allowed_ips_raw.split(",") if ip.strip()}
+
+
+def _slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    return re.sub(r"-+", "-", text)
+
+
+def _json(data, status: int = 200) -> func.HttpResponse:
+    return func.HttpResponse(
+        body=json.dumps(data),
+        status_code=status,
+        mimetype="application/json",
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
+def _error(message: str, status: int = 400) -> func.HttpResponse:
+    return _json({"error": message}, status)
+
+
+def _get_client_ip(req: func.HttpRequest) -> str:
+    # Azure's load balancer forwards the real client IP here
+    xff = req.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return "127.0.0.1"  # local dev fallback
+
+
+# ---------------------------------------------------------------------------
+# NFC scan — phone browser opens this URL when sticker is scanned
+# ---------------------------------------------------------------------------
+
+@app.route(route="nfc/{plant_id}", methods=["GET"])
+def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
+    plant_id = req.route_params.get("plant_id", "").strip()
+    plant = storage.mark_plant_watered(plant_id)
+    if plant is None:
+        return func.HttpResponse(
+            "<html><body><h2>Plant not found.</h2></body></html>",
+            status_code=404,
+            mimetype="text/html",
+        )
+
+    storage.enqueue_watering_event(plant_id, plant["name"], plant["room"])
+    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plant Watered</title>
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; min-height: 100vh; margin: 0;
+      background: #f0f9f0; color: #2d6a2d;
+    }}
+    .card {{
+      background: white; border-radius: 16px; padding: 2rem 3rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08); text-align: center;
+    }}
+    .tick {{ font-size: 4rem; margin-bottom: 0.5rem; }}
+    h1 {{ margin: 0 0 0.5rem; font-size: 1.6rem; }}
+    p {{ margin: 0; color: #666; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="tick">&#x2705;</div>
+    <h1>{plant['name']} watered!</h1>
+    <p>{plant['room']} &bull; {now_str}</p>
+  </div>
+</body>
+</html>"""
+    return func.HttpResponse(html, status_code=200, mimetype="text/html")
+
+
+# ---------------------------------------------------------------------------
+# Queue trigger — fan-out Web Push to all subscribers
+# ---------------------------------------------------------------------------
+
+@app.queue_trigger(
+    arg_name="msg",
+    queue_name="watering-notifications",
+    connection="AzureWebJobsStorage",
+)
+def process_notification(msg: func.QueueMessage) -> None:
+    try:
+        data = json.loads(msg.get_body().decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as ex:
+        logger.error("Bad queue message: %s", ex)
+        return
+
+    plant_name = data.get("plant_name", "Unknown Plant")
+    room = data.get("room", "")
+    title = f"\U0001f33f {plant_name} watered!"
+    body = f"{plant_name} in {room} was just watered by a flatmate."
+
+    subscriptions = storage.get_all_subscriptions()
+    logger.info("Sending watered notification to %d subscribers.", len(subscriptions))
+    for sub in subscriptions:
+        success = wp.send_push_notification(sub, title, body)
+        if not success:
+            storage.delete_subscription(sub["row_key"])
+
+
+# ---------------------------------------------------------------------------
+# Timer trigger — check for overdue plants every 6 hours
+# ---------------------------------------------------------------------------
+
+@app.timer_trigger(
+    arg_name="timer",
+    schedule="0 0 */6 * * *",
+    run_on_startup=False,
+)
+def watering_check(timer: func.TimerRequest) -> None:
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+
+    plants = storage.get_all_plants()
+    subscriptions = storage.get_all_subscriptions()
+    if not subscriptions:
+        logger.info("No subscribers — skipping watering check.")
+        return
+
+    for plant in plants:
+        last_watered_str = plant.get("last_watered")
+        if not last_watered_str:
+            days_since = float("inf")
+        else:
+            last_watered = datetime.fromisoformat(last_watered_str)
+            if last_watered.tzinfo is None:
+                last_watered = last_watered.replace(tzinfo=timezone.utc)
+            days_since = (now - last_watered).total_seconds() / 86400
+
+        if days_since <= plant["watering_interval_days"]:
+            continue
+
+        last_notif_str = plant.get("last_notification_sent")
+        if last_notif_str:
+            last_notif = datetime.fromisoformat(last_notif_str)
+            if last_notif.tzinfo is None:
+                last_notif = last_notif.replace(tzinfo=timezone.utc)
+            if last_notif.date().isoformat() == today:
+                logger.info("Already notified about %s today.", plant["name"])
+                continue
+
+        title = f"\U0001f4a7 {plant['name']} needs watering!"
+        if days_since == float("inf"):
+            body = f"{plant['name']} in {plant['room']} hasn't been watered yet!"
+        else:
+            body = (
+                f"{plant['name']} in {plant['room']} needs watering — "
+                f"last watered {days_since:.1f} days ago."
+            )
+
+        for sub in subscriptions:
+            try:
+                success = wp.send_push_notification(sub, title, body)
+                if not success:
+                    storage.delete_subscription(sub["row_key"])
+            except Exception as ex:
+                logger.error("Notification error for sub %s: %s", sub.get("row_key"), ex)
+
+        storage.update_plant_notification_sent(plant["plant_id"])
+        logger.info("Sent overdue notification for %s.", plant["name"])
+
+
+# ---------------------------------------------------------------------------
+# Subscribe page + service worker
+# ---------------------------------------------------------------------------
+
+@app.route(route="subscribe", methods=["GET"])
+def subscribe_page(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        html = (STATIC_DIR / "subscribe.html").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return func.HttpResponse("subscribe.html not found", status_code=500)
+    return func.HttpResponse(html, status_code=200, mimetype="text/html")
+
+
+@app.route(route="sw.js", methods=["GET"])
+def service_worker(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        js = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return func.HttpResponse("sw.js not found", status_code=500)
+    return func.HttpResponse(
+        js,
+        status_code=200,
+        mimetype="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
+
+
+@app.route(route="subscribe", methods=["POST"])
+def save_subscription(req: func.HttpRequest) -> func.HttpResponse:
+    if ALLOWED_SUBSCRIBE_IPS:
+        client_ip = _get_client_ip(req)
+        if client_ip not in ALLOWED_SUBSCRIBE_IPS:
+            logger.warning("Subscription attempt from non-whitelisted IP: %s", client_ip)
+            return _error("Access denied.", 403)
+
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body.")
+
+    endpoint = (body.get("endpoint") or "").strip()
+    p256dh = (body.get("p256dh") or "").strip()
+    auth = (body.get("auth") or "").strip()
+    label = (body.get("label") or "").strip()
+
+    if not endpoint or not p256dh or not auth:
+        return _error("Missing endpoint, p256dh, or auth.")
+
+    row_key = storage.save_subscription(endpoint, p256dh, auth, label)
+    return _json({"id": row_key, "status": "subscribed"}, 201)
+
+
+@app.route(route="vapid-public-key", methods=["GET"])
+def vapid_public_key(req: func.HttpRequest) -> func.HttpResponse:
+    return _json({"publicKey": VAPID_PUBLIC_KEY})
+
+
+# ---------------------------------------------------------------------------
+# Plants CRUD
+# ---------------------------------------------------------------------------
+
+@app.route(route="plants", methods=["GET"])
+def list_plants(req: func.HttpRequest) -> func.HttpResponse:
+    return _json(storage.get_all_plants())
+
+
+@app.route(route="plants", methods=["POST"])
+def create_plant(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body.")
+
+    name = (body.get("name") or "").strip()
+    room = (body.get("room") or "").strip()
+    if not name or not room:
+        return _error("name and room are required.")
+    if "watering_interval_days" not in body:
+        return _error("watering_interval_days is required.")
+
+    plant_id = _slugify(f"{room}-{name}")
+    if storage.get_plant(plant_id):
+        return _error(f"Plant '{plant_id}' already exists.", 409)
+
+    plant = storage.create_plant(plant_id, body)
+    return _json(plant, 201)
+
+
+@app.route(route="plants/{plant_id}", methods=["PUT"])
+def update_plant(req: func.HttpRequest) -> func.HttpResponse:
+    plant_id = req.route_params.get("plant_id", "")
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body.")
+
+    plant = storage.update_plant(plant_id, body)
+    if plant is None:
+        return _error("Plant not found.", 404)
+    return _json(plant)
+
+
+@app.route(route="plants/{plant_id}", methods=["DELETE"])
+def delete_plant(req: func.HttpRequest) -> func.HttpResponse:
+    plant_id = req.route_params.get("plant_id", "")
+    if not storage.delete_plant(plant_id):
+        return _error("Plant not found.", 404)
+    return func.HttpResponse(status_code=204)

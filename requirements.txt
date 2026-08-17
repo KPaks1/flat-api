@@ -1,0 +1,5 @@
+azure-functions==1.21.3
+azure-data-tables==12.5.0
+azure-storage-queue==12.10.0
+pywebpush==2.0.0
+cryptography==42.0.8

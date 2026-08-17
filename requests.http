@@ -1,0 +1,43 @@
+@base = http://localhost:7071/api
+
+### List all plants
+GET {{base}}/plants
+
+### Add a plant
+POST {{base}}/plants
+Content-Type: application/json
+
+{
+  "name": "Spider Plant",
+  "room": "Bathroom",
+  "plant_type": "Spider Plant",
+  "watering_interval_days": 3.5
+}
+
+### Add another plant
+POST {{base}}/plants
+Content-Type: application/json
+
+{
+  "name": "Snake Plant",
+  "room": "Living Room",
+  "plant_type": "Sansevieria",
+  "watering_interval_days": 7
+}
+
+### Update a plant (change watering interval)
+PUT {{base}}/plants/bathroom-spider-plant
+Content-Type: application/json
+
+{
+  "watering_interval_days": 4
+}
+
+### Delete a plant
+DELETE {{base}}/plants/bathroom-spider-plant
+
+### Simulate NFC scan (mark plant as watered)
+GET {{base}}/nfc/bathroom-spider-plant
+
+### Get VAPID public key
+GET {{base}}/vapid-public-key

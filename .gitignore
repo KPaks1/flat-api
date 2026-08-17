@@ -1,0 +1,9 @@
+local.settings.json
+private_key.pem
+.venv/
+.python_packages/
+__pycache__/
+*.pyc
+*.pyo
+azurite-data/
+.env
