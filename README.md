@@ -1,4 +1,4 @@
-# Flat Plant API
+# Flat Plant API <!-- ci test -->
 
 > **Live:** `https://flat-plants-api.azurewebsites.net`
 > **Repo:** `https://github.com/KPaks1/flat-api`
