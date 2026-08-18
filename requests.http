@@ -14,15 +14,26 @@ Content-Type: application/json
   "watering_interval_days": 3.5
 }
 
+### Add a plant
+POST {{base}}/plants
+Content-Type: application/json
+
+{
+  "name": "Calathea Plant",
+  "room": "Bathroom",
+  "plant_type": "Calathea",
+  "watering_interval_days": 3.5
+}
+
 ### Add another plant
 POST {{base}}/plants
 Content-Type: application/json
 
 {
-  "name": "Snake Plant",
-  "room": "Living Room",
-  "plant_type": "Sansevieria",
-  "watering_interval_days": 7
+  "name": "Ficus Plant",
+  "room": "Bathroom",
+  "plant_type": "Ficus",
+  "watering_interval_days": 14
 }
 
 ### Update a plant (change watering interval)
@@ -33,8 +44,17 @@ Content-Type: application/json
   "watering_interval_days": 4
 }
 
+### Water a plant
+GET {{base}}/nfc/bathroom-spider-plant
+
+### Water a plant
+GET {{base}}/nfc/bathroom--plant
+
+### Water a plant
+GET {{base}}/nfc/bathroom-spider-plant
+
 ### Delete a plant
-DELETE {{base}}/plants/bathroom-spider-plant
+DELETE {{base}}/plants/bathroom-ficus-plant
 
 ### Simulate NFC scan (mark plant as watered)
 GET {{base}}/nfc/bathroom-spider-plant

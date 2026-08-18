@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(az ad app list *)",
+      "Bash(az ad app federated-credential *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(az account show *)",
+      "Bash(az role assignment create *)",
+      "Bash(az ad sp show *)",
+      "Bash(C:/Users/pakik/source/repos/agora/.venv/Scripts/python.exe *)",
+      "Bash(C:/Users/pakik/source/repos/agora/.venv/Scripts/agora.exe *)"
+    ]
+  }
+}

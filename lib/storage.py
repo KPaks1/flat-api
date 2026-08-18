@@ -1,8 +1,9 @@
 import os
 import uuid
 import json
+import base64
 from datetime import datetime, timezone
-from azure.data.tables import TableServiceClient, TableClient
+from azure.data.tables import TableServiceClient, TableClient, UpdateMode
 from azure.storage.queue import QueueClient
 from azure.core.exceptions import ResourceNotFoundError, ResourceExistsError
 
@@ -90,7 +91,7 @@ def update_plant(plant_id: str, data: dict) -> "dict | None":
     for field in ("name", "room", "plant_type", "watering_interval_days"):
         if field in data:
             entity[field] = float(data[field]) if field == "watering_interval_days" else data[field]
-    client.update_entity(entity, mode="Merge")
+    client.update_entity(entity, mode=UpdateMode.MERGE)
     return _deserialize_plant(entity)
 
 
@@ -101,7 +102,7 @@ def mark_plant_watered(plant_id: str) -> "dict | None":
     except ResourceNotFoundError:
         return None
     entity["last_watered"] = datetime.now(timezone.utc).isoformat()
-    client.update_entity(entity, mode="Merge")
+    client.update_entity(entity, mode=UpdateMode.MERGE)
     return _deserialize_plant(entity)
 
 
@@ -112,7 +113,7 @@ def update_plant_notification_sent(plant_id: str):
     except ResourceNotFoundError:
         return
     entity["last_notification_sent"] = datetime.now(timezone.utc).isoformat()
-    client.update_entity(entity, mode="Merge")
+    client.update_entity(entity, mode=UpdateMode.MERGE)
 
 
 def delete_plant(plant_id: str) -> bool:
@@ -174,7 +175,7 @@ def enqueue_watering_event(plant_id: str, plant_name: str, room: str):
         "plant_name": plant_name,
         "room": room,
     })
-    q.send_message(message)
+    q.send_message(base64.b64encode(message.encode()).decode())
 
 
 # --- Deserializers ---
