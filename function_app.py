@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import azure.functions as func
 from lib import storage
 from lib import webpush as wp
+from lib import whatsapp
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 logger = logging.getLogger(__name__)
@@ -116,9 +117,11 @@ def process_notification(msg: func.QueueMessage) -> None:
 
     plant_name = data.get("plant_name", "Unknown Plant")
     room = data.get("room", "")
+
+    whatsapp.send_plant_watered(plant_name, room)
+
     title = f"\U0001f33f {plant_name} watered!"
     body = f"{plant_name} in {room} was just watered by a flatmate."
-
     subscriptions = storage.get_all_subscriptions()
     logger.info("Sending watered notification to %d subscribers.", len(subscriptions))
     for sub in subscriptions:
@@ -171,11 +174,13 @@ def watering_check(timer: func.TimerRequest) -> None:
         title = f"\U0001f4a7 {plant['name']} needs watering!"
         if days_since == float("inf"):
             body = f"{plant['name']} in {plant['room']} hasn't been watered yet!"
+            whatsapp.send_plant_overdue(plant["name"], plant["room"], 0)
         else:
             body = (
                 f"{plant['name']} in {plant['room']} needs watering — "
                 f"last watered {days_since:.1f} days ago."
             )
+            whatsapp.send_plant_overdue(plant["name"], plant["room"], days_since)
 
         for sub in subscriptions:
             try:

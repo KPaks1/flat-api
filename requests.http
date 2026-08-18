@@ -48,7 +48,7 @@ Content-Type: application/json
 GET {{base}}/nfc/bathroom-spider-plant
 
 ### Water a plant
-GET {{base}}/nfc/bathroom--plant
+GET {{base}}/nfc/bathroom-ficus-plant
 
 ### Water a plant
 GET {{base}}/nfc/bathroom-spider-plant
