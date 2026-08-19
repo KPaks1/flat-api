@@ -135,6 +135,7 @@ curl -X DELETE https://<app>.azurewebsites.net/api/plants/bedroom-monstera
 | GET | `/api/subscribe` | Subscription page (serve to flatmates) |
 | POST | `/api/subscribe` | Register a push subscription |
 | GET | `/api/vapid-public-key` | VAPID public key (used by subscribe page) |
+| GET | `/api/favicon.ico` | Favicon (SVG) |
 
 ---
 

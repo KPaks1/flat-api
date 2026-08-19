@@ -210,6 +210,15 @@ def subscribe_page(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
 
 
+@app.route(route="favicon.ico", methods=["GET"])
+def favicon(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        svg = (STATIC_DIR / "favicon.svg").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return func.HttpResponse("favicon.svg not found", status_code=500)
+    return func.HttpResponse(svg, status_code=200, mimetype="image/svg+xml")
+
+
 @app.route(route="sw.js", methods=["GET"])
 def service_worker(req: func.HttpRequest) -> func.HttpResponse:
     try:
