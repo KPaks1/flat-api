@@ -282,6 +282,7 @@
         statusEl.textContent = '✓ You\'re subscribed! You\'ll receive plant notifications on this device.';
         statusEl.className = 'success';
         document.getElementById('subscribeForm').style.display = 'none';
+        document.getElementById('unsubscribeRow').style.display = 'block';
         renderPlantDashboard();
 
       } catch (err) {

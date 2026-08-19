@@ -70,6 +70,10 @@ GET {{base}}/nfc/bathroom-ficus-plant
 GET {{base}}/nfc/bathroom-spider-plant
 
 ### Delete a plant
+DELETE {{base}}/plants/bathroom-calathea-plant
+### Delete a plant
+DELETE {{base}}/plants/bathroom-spider-plant
+### Delete a plant
 DELETE {{base}}/plants/bathroom-ficus-plant
 
 ### Simulate NFC scan (mark plant as watered)
