@@ -101,7 +101,7 @@ def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
     if not _is_subscribed_device(req):
         return func.HttpResponse(
             "<html><body><h2>This device isn't registered.</h2>"
-            "<p>Open <a href=\"/api/subscribe\">/subscribe</a> from home wifi "
+            "<p>Open <a href=\"/subscribe\">/subscribe</a> from home wifi "
             "and enable notifications first, then come back and tap the sticker again.</p>"
             "</body></html>",
             status_code=403,
@@ -179,9 +179,12 @@ def process_notification(msg: func.QueueMessage) -> None:
     subscriptions = storage.get_all_subscriptions()
     logger.info("Sending watered notification to %d subscribers.", len(subscriptions))
     for sub in subscriptions:
-        success = wp.send_push_notification(sub, title, body)
-        if not success:
-            storage.delete_subscription(sub["row_key"])
+        try:
+            success = wp.send_push_notification(sub, title, body)
+            if not success:
+                storage.delete_subscription(sub["row_key"])
+        except Exception as ex:
+            logger.error("Notification error for sub %s: %s", sub.get("row_key"), ex)
 
 
 # ---------------------------------------------------------------------------
@@ -252,13 +255,35 @@ def watering_check(timer: func.TimerRequest) -> None:
 # Subscribe page + service worker
 # ---------------------------------------------------------------------------
 
-@app.route(route="subscribe", methods=["GET"])
-def subscribe_page(req: func.HttpRequest) -> func.HttpResponse:
+def _redirect(location: str) -> func.HttpResponse:
+    return func.HttpResponse(status_code=302, headers={"Location": location})
+
+
+def _subscribe_html_response() -> func.HttpResponse:
     try:
         html = (STATIC_DIR / "subscribe.html").read_text(encoding="utf-8")
     except FileNotFoundError:
         return func.HttpResponse("subscribe.html not found", status_code=500)
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
+
+
+@app.route(route="/", methods=["GET"])
+def root_page(req: func.HttpRequest) -> func.HttpResponse:
+    return _redirect("/home" if _is_subscribed_device(req) else "/subscribe")
+
+
+@app.route(route="subscribe", methods=["GET"])
+def subscribe_page(req: func.HttpRequest) -> func.HttpResponse:
+    if _is_subscribed_device(req):
+        return _redirect("/home")
+    return _subscribe_html_response()
+
+
+@app.route(route="home", methods=["GET"])
+def home_page(req: func.HttpRequest) -> func.HttpResponse:
+    if not _is_subscribed_device(req):
+        return _redirect("/subscribe")
+    return _subscribe_html_response()
 
 
 @app.route(route="favicon.ico", methods=["GET"])
@@ -307,9 +332,10 @@ def save_subscription(req: func.HttpRequest) -> func.HttpResponse:
 
     row_key = storage.save_subscription(endpoint, p256dh, auth, label)
     response = _json({"id": row_key, "status": "subscribed"}, 201)
+    secure_attr = "; Secure" if req.url.startswith("https://") else ""
     response.headers["Set-Cookie"] = (
         f"{DEVICE_COOKIE_NAME}={_sign_device_token(row_key)}; "
-        f"Max-Age={DEVICE_COOKIE_MAX_AGE}; Path=/; HttpOnly; Secure; SameSite=Lax"
+        f"Max-Age={DEVICE_COOKIE_MAX_AGE}; Path=/; HttpOnly{secure_attr}; SameSite=Lax"
     )
     return response
 

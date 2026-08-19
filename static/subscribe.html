@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flat Plant Notifications</title>
-  <link rel="icon" href="/api/favicon.ico" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -39,7 +39,6 @@
     }
     #status.success { background: #e8f5e9; color: #2d6a2d; display: block; }
     #status.error { background: #ffebee; color: #c62828; display: block; }
-    .note { font-size: 0.78rem; color: #999; margin-top: 1.25rem; line-height: 1.5; }
     .plant-row {
       display: flex; justify-content: space-between; align-items: center;
       padding: 0.65rem 0; border-bottom: 1px solid #eee; text-align: left;
@@ -73,14 +72,34 @@
     <div id="plantDashboard" style="display:none">
       <div id="plantList"></div>
     </div>
-
-    <p class="note">
-      Works on Android Chrome and iOS 16.4+ Safari.<br>
-      On older iOS, add this page to your Home Screen first.
-    </p>
   </div>
 
   <script>
+    (function setupPullToRefresh() {
+      const isStandalone = window.navigator.standalone === true ||
+        window.matchMedia('(display-mode: standalone)').matches;
+      if (!isStandalone) return; // regular browser tabs already have native pull-to-refresh
+
+      const THRESHOLD = 70;
+      let startY = null;
+
+      document.addEventListener('touchstart', (e) => {
+        startY = window.scrollY === 0 ? e.touches[0].clientY : null;
+      }, { passive: true });
+
+      document.addEventListener('touchmove', (e) => {
+        if (startY === null) return;
+        if (e.touches[0].clientY - startY > THRESHOLD) {
+          startY = null;
+          location.reload();
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchend', () => {
+        startY = null;
+      }, { passive: true });
+    })();
+
     async function getExistingSubscription() {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
       const reg = await navigator.serviceWorker.getRegistration('/');
@@ -120,7 +139,7 @@
       const listEl = document.getElementById('plantList');
       document.getElementById('plantDashboard').style.display = 'block';
       try {
-        const resp = await fetch('/api/plants');
+        const resp = await fetch('/plants');
         if (!resp.ok) throw new Error('Could not load plants.');
         const plants = await resp.json();
 
@@ -149,9 +168,6 @@
     function showSubscribedState() {
       document.getElementById('checking').style.display = 'none';
       document.getElementById('subscribeForm').style.display = 'none';
-      const statusEl = document.getElementById('status');
-      statusEl.textContent = "✓ You're subscribed on this device.";
-      statusEl.className = 'success';
       renderPlantDashboard();
     }
 
@@ -161,7 +177,7 @@
         // Re-send in the background in case the server dropped this subscription
         // (e.g. after a failed push) while the browser still holds it.
         const sub = existing.toJSON();
-        fetch('/api/subscribe', {
+        fetch('/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth, label: '' }),
@@ -189,11 +205,11 @@
         }
 
         // Register service worker
-        const reg = await navigator.serviceWorker.register('/api/sw.js', { scope: '/' });
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         await navigator.serviceWorker.ready;
 
         // Fetch VAPID public key
-        const keyResp = await fetch('/api/vapid-public-key');
+        const keyResp = await fetch('/vapid-public-key');
         if (!keyResp.ok) throw new Error('Could not fetch server key.');
         const { publicKey } = await keyResp.json();
 
@@ -211,7 +227,7 @@
 
         // Send subscription to server
         const sub = subscription.toJSON();
-        const resp = await fetch('/api/subscribe', {
+        const resp = await fetch('/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

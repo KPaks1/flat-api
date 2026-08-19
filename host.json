@@ -13,6 +13,9 @@
     }
   },
   "extensions": {
+    "http": {
+      "routePrefix": ""
+    },
     "queues": {
       "batchSize": 1,
       "maxDequeueCount": 3,
