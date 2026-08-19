@@ -295,7 +295,6 @@ def dashboard_page(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("dashboard.html not found", status_code=500)
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
 
-
 @app.route(route="favicon.ico", methods=["GET"])
 def favicon(req: func.HttpRequest) -> func.HttpResponse:
     try:
