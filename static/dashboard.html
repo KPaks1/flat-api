@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flat Plant Watering History</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5; min-height: 100vh;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: white; border-radius: 16px; padding: 2rem;
+      max-width: 900px; width: 100%; margin: 1rem auto;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    h1 { font-size: 1.4rem; color: #1a1a1a; margin-bottom: 0.35rem; }
+    .subtitle { color: #666; margin-bottom: 1.25rem; line-height: 1.5; font-size: 0.9rem; }
+    .back-link {
+      display: inline-block; margin-bottom: 1rem; color: #2d6a2d;
+      text-decoration: none; font-size: 0.85rem; font-weight: 600;
+    }
+    .back-link:hover { text-decoration: underline; }
+    .range-row { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+    .range-btn {
+      padding: 0.4rem 0.85rem; border: 1.5px solid #ddd; border-radius: 999px;
+      background: white; color: #52514e; font-size: 0.85rem; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .range-btn:hover { border-color: #2d6a2d; }
+    .range-btn.active { background: #2d6a2d; border-color: #2d6a2d; color: white; }
+    .chart-wrap { position: relative; overflow-x: auto; }
+    .empty { color: #898781; font-size: 0.9rem; padding: 2rem 0; text-align: center; }
+    svg text { font-family: inherit; }
+    .row-label { fill: #0b0b0b; font-size: 0.82rem; font-weight: 600; }
+    .row-sublabel { fill: #898781; font-size: 0.72rem; }
+    .axis-label { fill: #898781; font-size: 0.72rem; }
+    .gridline { stroke: #e1e0d9; stroke-width: 1; }
+    .row-empty-note { fill: #898781; font-size: 0.72rem; font-style: italic; }
+    .event-dot { fill: #2d6a2d; stroke: #ffffff; stroke-width: 2; }
+    .event-hit { fill: transparent; cursor: pointer; }
+    .event-hit:hover + .event-dot, .event-hit:focus + .event-dot {
+      fill: #245424;
+    }
+    #tooltip {
+      position: absolute; display: none; pointer-events: none;
+      background: #0b0b0b; color: white; padding: 0.5rem 0.7rem;
+      border-radius: 8px; font-size: 0.8rem; line-height: 1.4;
+      max-width: 220px; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    #tooltip strong { display: block; font-size: 0.85rem; }
+    #tooltip span { color: #c3c2b7; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <a class="back-link" href="/home">&larr; Back</a>
+    <h1>Watering History</h1>
+    <p class="subtitle">Each dot marks a watering. Grouped by plant, over the selected range.</p>
+
+    <div class="range-row" id="rangeRow">
+      <button class="range-btn" data-days="7">7 days</button>
+      <button class="range-btn" data-days="30">30 days</button>
+      <button class="range-btn" data-days="90">90 days</button>
+    </div>
+
+    <div class="chart-wrap" id="chartWrap">
+      <div id="tooltip"></div>
+    </div>
+  </div>
+
+  <script>
+    (function setupPullToRefresh() {
+      const isStandalone = window.navigator.standalone === true ||
+        window.matchMedia('(display-mode: standalone)').matches;
+      if (!isStandalone) return; // regular browser tabs already have native pull-to-refresh
+
+      const THRESHOLD = 70;
+      let startY = null;
+
+      document.addEventListener('touchstart', (e) => {
+        startY = window.scrollY === 0 ? e.touches[0].clientY : null;
+      }, { passive: true });
+
+      document.addEventListener('touchmove', (e) => {
+        if (startY === null) return;
+        if (e.touches[0].clientY - startY > THRESHOLD) {
+          startY = null;
+          location.reload();
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchend', () => {
+        startY = null;
+      }, { passive: true });
+    })();
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const ROW_HEIGHT = 40;
+    const MARGIN = { top: 24, right: 24, bottom: 32, left: 170 };
+    const MIN_CHART_WIDTH = 520;
+
+    let currentDays = 30;
+
+    function el(tag, attrs) {
+      const node = document.createElementNS(SVG_NS, tag);
+      for (const key in attrs) node.setAttribute(key, attrs[key]);
+      return node;
+    }
+
+    function formatAxisDate(date) {
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function formatTooltipDate(date) {
+      return date.toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      });
+    }
+
+    function showTooltip(target, watered_at, plantName, room) {
+      const tooltip = document.getElementById('tooltip');
+      const wrap = document.getElementById('chartWrap');
+      const wrapRect = wrap.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+
+      const strong = document.createElement('strong');
+      strong.textContent = formatTooltipDate(new Date(watered_at));
+      const span = document.createElement('span');
+      span.textContent = `${plantName} · ${room}`;
+
+      tooltip.textContent = '';
+      tooltip.appendChild(strong);
+      tooltip.appendChild(span);
+      tooltip.style.display = 'block';
+
+      // Position relative to the target, then clamp so it never spills past
+      // the chart's visible edges (measured after content is set, since size
+      // depends on the text).
+      const targetLeft = targetRect.left - wrapRect.left + wrap.scrollLeft;
+      const targetTop = targetRect.top - wrapRect.top;
+      const tooltipWidth = tooltip.offsetWidth;
+      const tooltipHeight = tooltip.offsetHeight;
+      const visibleWidth = wrap.clientWidth + wrap.scrollLeft;
+
+      let left = targetLeft + 14;
+      if (left + tooltipWidth > visibleWidth) {
+        left = targetLeft - tooltipWidth - 14; // flip to the left of the dot
+      }
+      left = Math.max(wrap.scrollLeft, left);
+
+      let top = targetTop - tooltipHeight - 8;
+      if (top < 0) {
+        top = targetTop + 20; // flip below the dot if there's no room above
+      }
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function hideTooltip() {
+      document.getElementById('tooltip').style.display = 'none';
+    }
+
+    function renderChart(plants, events) {
+      const wrap = document.getElementById('chartWrap');
+      wrap.querySelectorAll('svg').forEach(n => n.remove());
+
+      if (!plants.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'No plants added yet.';
+        wrap.appendChild(empty);
+        return;
+      }
+
+      const sorted = [...plants].sort((a, b) =>
+        a.room.localeCompare(b.room) || a.name.localeCompare(b.name));
+
+      const eventsByPlant = new Map();
+      for (const ev of events) {
+        if (!eventsByPlant.has(ev.plant_id)) eventsByPlant.set(ev.plant_id, []);
+        eventsByPlant.get(ev.plant_id).push(ev);
+      }
+
+      const now = new Date();
+      const rangeStart = new Date(now.getTime() - currentDays * 86400000);
+      const chartHeight = MARGIN.top + sorted.length * ROW_HEIGHT + MARGIN.bottom;
+      const chartWidth = Math.max(MIN_CHART_WIDTH, wrap.clientWidth || MIN_CHART_WIDTH);
+      const plotLeft = MARGIN.left;
+      const plotRight = chartWidth - MARGIN.right;
+
+      function xForDate(d) {
+        const frac = (d.getTime() - rangeStart.getTime()) / (now.getTime() - rangeStart.getTime());
+        return plotLeft + frac * (plotRight - plotLeft);
+      }
+
+      const svg = el('svg', {
+        viewBox: `0 0 ${chartWidth} ${chartHeight}`,
+        width: '100%',
+        height: chartHeight,
+        role: 'img',
+        'aria-label': 'Watering history timeline',
+      });
+
+      // Date-axis gridlines, roughly every 5 days
+      const gridStepDays = currentDays <= 7 ? 1 : (currentDays <= 30 ? 5 : 14);
+      for (let d = 0; d <= currentDays; d += gridStepDays) {
+        const date = new Date(rangeStart.getTime() + d * 86400000);
+        const x = xForDate(date);
+        svg.appendChild(el('line', {
+          class: 'gridline', x1: x, x2: x, y1: MARGIN.top - 8, y2: chartHeight - MARGIN.bottom,
+        }));
+        const label = el('text', {
+          class: 'axis-label', x, y: chartHeight - MARGIN.bottom + 18, 'text-anchor': 'middle',
+        });
+        label.textContent = formatAxisDate(date);
+        svg.appendChild(label);
+      }
+
+      sorted.forEach((plant, i) => {
+        const rowY = MARGIN.top + i * ROW_HEIGHT + ROW_HEIGHT / 2;
+
+        const nameLabel = el('text', { class: 'row-label', x: 0, y: rowY - 3 });
+        nameLabel.textContent = plant.name;
+        svg.appendChild(nameLabel);
+
+        const roomLabel = el('text', { class: 'row-sublabel', x: 0, y: rowY + 11 });
+        roomLabel.textContent = plant.room;
+        svg.appendChild(roomLabel);
+
+        svg.appendChild(el('line', {
+          class: 'gridline', x1: plotLeft, x2: plotRight, y1: rowY, y2: rowY,
+        }));
+
+        const plantEvents = (eventsByPlant.get(plant.plant_id) || [])
+          .filter(ev => new Date(ev.watered_at) >= rangeStart);
+
+        if (!plantEvents.length) {
+          const note = el('text', {
+            class: 'row-empty-note', x: plotLeft + 8, y: rowY + 4,
+          });
+          note.textContent = 'No waterings in this window';
+          svg.appendChild(note);
+          return;
+        }
+
+        for (const ev of plantEvents) {
+          const x = xForDate(new Date(ev.watered_at));
+          const hit = el('circle', {
+            class: 'event-hit', cx: x, cy: rowY, r: 12, tabindex: '0',
+          });
+          const dot = el('circle', {
+            class: 'event-dot', cx: x, cy: rowY, r: 5,
+          });
+          hit.addEventListener('pointerenter', () => showTooltip(hit, ev.watered_at, plant.name, plant.room));
+          hit.addEventListener('pointerleave', hideTooltip);
+          hit.addEventListener('focus', () => showTooltip(hit, ev.watered_at, plant.name, plant.room));
+          hit.addEventListener('blur', hideTooltip);
+          svg.appendChild(hit);
+          svg.appendChild(dot);
+        }
+      });
+
+      wrap.appendChild(svg);
+    }
+
+    async function loadAndRender() {
+      const wrap = document.getElementById('chartWrap');
+      try {
+        const [plantsResp, eventsResp] = await Promise.all([
+          fetch('/plants'),
+          fetch(`/watering-history?days=${currentDays}`),
+        ]);
+        if (!plantsResp.ok || !eventsResp.ok) throw new Error('Could not load watering history.');
+        const plants = await plantsResp.json();
+        const events = await eventsResp.json();
+        renderChart(plants, events);
+      } catch (err) {
+        wrap.querySelectorAll('svg').forEach(n => n.remove());
+        const empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = err.message;
+        wrap.appendChild(empty);
+      }
+    }
+
+    document.getElementById('rangeRow').addEventListener('click', (e) => {
+      const btn = e.target.closest('.range-btn');
+      if (!btn) return;
+      currentDays = Number(btn.dataset.days);
+      document.querySelectorAll('.range-btn').forEach(b => b.classList.toggle('active', b === btn));
+      loadAndRender();
+    });
+
+    document.querySelector('.range-btn[data-days="30"]').classList.add('active');
+    loadAndRender();
+  </script>
+</body>
+</html>

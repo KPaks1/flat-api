@@ -11,6 +11,7 @@ CONN_STR = os.environ["STORAGE_CONNECTION_STRING"]
 
 PLANTS_TABLE = "plants"
 SUBSCRIPTIONS_TABLE = "subscriptions"
+WATERING_EVENTS_TABLE = "wateringevents"
 WATERING_QUEUE = "watering-notifications"
 
 PLANTS_PK = "plants"
@@ -34,7 +35,7 @@ def _table_client(table_name: str) -> TableClient:
 
 def ensure_tables_and_queues():
     svc = TableServiceClient.from_connection_string(CONN_STR)
-    for name in (PLANTS_TABLE, SUBSCRIPTIONS_TABLE):
+    for name in (PLANTS_TABLE, SUBSCRIPTIONS_TABLE, WATERING_EVENTS_TABLE):
         try:
             svc.create_table(name)
         except ResourceExistsError:
@@ -187,6 +188,32 @@ def enqueue_watering_event(plant_id: str, plant_name: str, room: str):
     q.send_message(base64.b64encode(message.encode()).decode())
 
 
+# --- Watering events ---
+
+def record_watering_event(plant_id: str, plant_name: str, room: str) -> dict:
+    client = _table_client(WATERING_EVENTS_TABLE)
+    entity = {
+        "PartitionKey": plant_id,
+        "RowKey": str(uuid.uuid4()),
+        "plant_id": plant_id,
+        "plant_name": plant_name,
+        "room": room,
+        "watered_at": datetime.now(timezone.utc).isoformat(),
+    }
+    client.create_entity(entity)
+    return _deserialize_watering_event(entity)
+
+
+def get_watering_events_since(cutoff_iso: str) -> list:
+    client = _table_client(WATERING_EVENTS_TABLE)
+    events = [
+        _deserialize_watering_event(e)
+        for e in client.query_entities(f"watered_at ge '{cutoff_iso}'")
+    ]
+    events.sort(key=lambda e: e["watered_at"])
+    return events
+
+
 # --- Deserializers ---
 
 def _deserialize_plant(entity: dict) -> dict:
@@ -208,4 +235,13 @@ def _deserialize_subscription(entity: dict) -> dict:
         "p256dh": entity.get("p256dh", ""),
         "auth": entity.get("auth", ""),
         "label": entity.get("label", ""),
+    }
+
+
+def _deserialize_watering_event(entity: dict) -> dict:
+    return {
+        "plant_id": entity.get("plant_id", ""),
+        "plant_name": entity.get("plant_name", ""),
+        "room": entity.get("room", ""),
+        "watered_at": entity.get("watered_at", ""),
     }

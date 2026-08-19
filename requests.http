@@ -1,5 +1,20 @@
-@base = http://localhost:7071/api
-#@base = flat-plants-api.azurewebsites.net/api
+@base = http://localhost:7071
+#@base = flat-plants-api.azurewebsites.net
+
+### Subscribe this REST client as a device (run once — needed before nfc/plants writes will work)
+# Fake push details are fine locally: ALLOWED_SUBSCRIBE_IPS is empty in local.settings.json so the
+# IP check is skipped, and the server never validates these are a real push subscription.
+# VS Code's REST Client stores the resulting Set-Cookie and replays it on later requests to {{base}}
+# in this file (requires the "rest-client.enableCookies" setting, on by default).
+POST {{base}}/subscribe
+Content-Type: application/json
+
+{
+  "endpoint": "https://example.com/fake-endpoint-for-local-testing",
+  "p256dh": "fake-p256dh",
+  "auth": "fake-auth",
+  "label": "requests.http"
+}
 
 ### List all plants
 GET {{base}}/plants
