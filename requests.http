@@ -1,4 +1,5 @@
 @base = http://localhost:7071/api
+#@base = flat-plants-api.azurewebsites.net/api
 
 ### List all plants
 GET {{base}}/plants
@@ -45,7 +46,7 @@ Content-Type: application/json
 }
 
 ### Water a plant
-GET {{base}}/nfc/bathroom-spider-plant
+GET {{base}}/nfc/bathroom-calathea-plant
 
 ### Water a plant
 GET {{base}}/nfc/bathroom-ficus-plant

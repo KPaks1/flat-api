@@ -135,6 +135,15 @@ def get_all_subscriptions() -> list:
     ]
 
 
+def get_subscription(row_key: str) -> "dict | None":
+    client = _table_client(SUBSCRIPTIONS_TABLE)
+    try:
+        entity = client.get_entity(SUBSCRIPTIONS_PK, row_key)
+        return _deserialize_subscription(entity)
+    except ResourceNotFoundError:
+        return None
+
+
 def save_subscription(endpoint: str, p256dh: str, auth: str, label: str = "") -> str:
     client = _table_client(SUBSCRIPTIONS_TABLE)
     existing = list(client.query_entities(

@@ -10,7 +10,14 @@
       "Bash(az role assignment create *)",
       "Bash(az ad sp show *)",
       "Bash(C:/Users/pakik/source/repos/agora/.venv/Scripts/python.exe *)",
-      "Bash(C:/Users/pakik/source/repos/agora/.venv/Scripts/agora.exe *)"
+      "Bash(C:/Users/pakik/source/repos/agora/.venv/Scripts/agora.exe *)",
+      "Bash(gh run *)",
+      "Bash(az functionapp *)",
+      "Bash(curl -s -o /dev/null -w \"subscribe: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/subscribe)",
+      "Bash(curl -s -o /dev/null -w \"plants: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/plants)",
+      "Bash(curl -s -o /dev/null -w \"vapid: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/vapid-public-key)",
+      "Bash(curl -s -o /dev/null -w \"favicon: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/favicon.ico)",
+      "Bash(curl -s https://flat-plants-api.azurewebsites.net/api/favicon.ico)"
     ]
   }
 }

@@ -54,14 +54,6 @@
     .badge.needs-water { background: #ffebee; color: #c62828; }
     .badge.ok { background: #e8f5e9; color: #2d6a2d; }
     .plant-empty { text-align: left; color: #888; font-size: 0.9rem; }
-    .ios-banner {
-      background: #eef6ff; border: 1px solid #cfe3ff; border-radius: 10px;
-      padding: 1rem; margin-bottom: 1.25rem; text-align: left;
-      font-size: 0.85rem; color: #1a4a7a; line-height: 1.6; display: none;
-    }
-    .ios-banner.show { display: block; }
-    .ios-banner strong { color: #0d3a66; }
-    .ios-banner ol { margin: 0.5rem 0 0 1.1rem; padding: 0; }
   </style>
 </head>
 <body>
@@ -69,14 +61,6 @@
     <div class="emoji">&#x1f33f;</div>
     <h1>Plant Notifications</h1>
     <p class="subtitle">Get notified when plants are watered or need watering. No app required.</p>
-    <div id="iosBanner" class="ios-banner">
-      📲 <strong>iPhone/iPad:</strong> add this page to your Home Screen first so notifications can work.
-      <ol>
-        <li>Tap the <strong>Share</strong> icon in Safari's toolbar</li>
-        <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
-        <li>Open the app from your Home Screen icon, then tap Enable Notifications below</li>
-      </ol>
-    </div>
     <p id="checking" class="subtitle">Checking subscription status…</p>
 
     <div id="subscribeForm" style="display:none">
@@ -97,17 +81,6 @@
   </div>
 
   <script>
-    (function () {
-      const ua = window.navigator.userAgent;
-      const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-      const isStandalone = window.navigator.standalone === true ||
-        window.matchMedia('(display-mode: standalone)').matches;
-      const forceIOS = new URLSearchParams(location.search).get('ios') === '1'; // for local preview: ?ios=1
-      if (forceIOS || (isIOS && !isStandalone)) {
-        document.getElementById('iosBanner').classList.add('show');
-      }
-    })();
-
     async function getExistingSubscription() {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
       const reg = await navigator.serviceWorker.getRegistration('/');

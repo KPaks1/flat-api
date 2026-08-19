@@ -1,9 +1,12 @@
+import hashlib
+import hmac
 import json
 import logging
 import pathlib
 import re
 import os
 from datetime import datetime, timezone
+from http.cookies import SimpleCookie
 
 import azure.functions as func
 from lib import storage
@@ -14,10 +17,14 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 logger = logging.getLogger(__name__)
 
 VAPID_PUBLIC_KEY = os.environ["VAPID_PUBLIC_KEY"]
+DEVICE_TOKEN_SECRET = os.environ["DEVICE_TOKEN_SECRET"]
 STATIC_DIR = pathlib.Path(__file__).parent / "static"
 
 _allowed_ips_raw = os.environ.get("ALLOWED_SUBSCRIBE_IPS", "")
 ALLOWED_SUBSCRIBE_IPS = {ip.strip() for ip in _allowed_ips_raw.split(",") if ip.strip()}
+
+DEVICE_COOKIE_NAME = "device_token"
+DEVICE_COOKIE_MAX_AGE = 315360000  # ~10 years
 
 
 def _slugify(text: str) -> str:
@@ -51,12 +58,56 @@ def _get_client_ip(req: func.HttpRequest) -> str:
     return ip
 
 
+def _sign_device_token(row_key: str) -> str:
+    sig = hmac.new(DEVICE_TOKEN_SECRET.encode(), row_key.encode(), hashlib.sha256).hexdigest()
+    return f"{row_key}.{sig}"
+
+
+def _verify_device_token(token: str) -> "str | None":
+    row_key, sep, sig = token.partition(".")
+    if not sep:
+        return None
+    expected = hmac.new(DEVICE_TOKEN_SECRET.encode(), row_key.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return row_key
+
+
+def _get_device_row_key(req: func.HttpRequest) -> "str | None":
+    cookie_header = req.headers.get("Cookie", "")
+    if not cookie_header:
+        return None
+    jar = SimpleCookie()
+    jar.load(cookie_header)
+    morsel = jar.get(DEVICE_COOKIE_NAME)
+    if morsel is None:
+        return None
+    return _verify_device_token(morsel.value)
+
+
+def _is_subscribed_device(req: func.HttpRequest) -> bool:
+    row_key = _get_device_row_key(req)
+    if not row_key:
+        return False
+    return storage.get_subscription(row_key) is not None
+
+
 # ---------------------------------------------------------------------------
 # NFC scan — phone browser opens this URL when sticker is scanned
 # ---------------------------------------------------------------------------
 
 @app.route(route="nfc/{plant_id}", methods=["GET"])
 def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
+    if not _is_subscribed_device(req):
+        return func.HttpResponse(
+            "<html><body><h2>This device isn't registered.</h2>"
+            "<p>Open <a href=\"/api/subscribe\">/subscribe</a> from home wifi "
+            "and enable notifications first, then come back and tap the sticker again.</p>"
+            "</body></html>",
+            status_code=403,
+            mimetype="text/html",
+        )
+
     plant_id = req.route_params.get("plant_id", "").strip()
     plant = storage.mark_plant_watered(plant_id)
     if plant is None:
@@ -255,7 +306,12 @@ def save_subscription(req: func.HttpRequest) -> func.HttpResponse:
         return _error("Missing endpoint, p256dh, or auth.")
 
     row_key = storage.save_subscription(endpoint, p256dh, auth, label)
-    return _json({"id": row_key, "status": "subscribed"}, 201)
+    response = _json({"id": row_key, "status": "subscribed"}, 201)
+    response.headers["Set-Cookie"] = (
+        f"{DEVICE_COOKIE_NAME}={_sign_device_token(row_key)}; "
+        f"Max-Age={DEVICE_COOKIE_MAX_AGE}; Path=/; HttpOnly; Secure; SameSite=Lax"
+    )
+    return response
 
 
 @app.route(route="vapid-public-key", methods=["GET"])
@@ -274,6 +330,9 @@ def list_plants(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="plants", methods=["POST"])
 def create_plant(req: func.HttpRequest) -> func.HttpResponse:
+    if not _is_subscribed_device(req):
+        return _error("Device not registered. Subscribe from home wifi first.", 403)
+
     try:
         body = req.get_json()
     except ValueError:
@@ -296,6 +355,9 @@ def create_plant(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="plants/{plant_id}", methods=["PUT"])
 def update_plant(req: func.HttpRequest) -> func.HttpResponse:
+    if not _is_subscribed_device(req):
+        return _error("Device not registered. Subscribe from home wifi first.", 403)
+
     plant_id = req.route_params.get("plant_id", "")
     try:
         body = req.get_json()
@@ -310,6 +372,9 @@ def update_plant(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="plants/{plant_id}", methods=["DELETE"])
 def delete_plant(req: func.HttpRequest) -> func.HttpResponse:
+    if not _is_subscribed_device(req):
+        return _error("Device not registered. Subscribe from home wifi first.", 403)
+
     plant_id = req.route_params.get("plant_id", "")
     if not storage.delete_plant(plant_id):
         return _error("Plant not found.", 404)
