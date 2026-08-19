@@ -10,7 +10,7 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #f5f5f5; min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
     .card {
       background: white; border-radius: 16px; padding: 2.5rem;
@@ -56,17 +56,23 @@
     .history-link { margin-top: 1rem; text-align: left; }
     .history-link a { color: #2d6a2d; font-size: 0.85rem; font-weight: 600; text-decoration: none; }
     .history-link a:hover { text-decoration: underline; }
+    #unsubscribeRow { text-align: center; margin-top: 0.75rem; }
+    #unsubscribeBtn {
+      background: none; border: none; padding: 0; color: #bbb;
+      font-size: 0.75rem; cursor: pointer;
+    }
+    #unsubscribeBtn:hover { color: #999; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="emoji">&#x1f33f;</div>
     <h1>Plant Notifications</h1>
-    <p class="subtitle">Get notified when plants are watered or need watering. No app required.</p>
+    <p class="subtitle">Get notified when plants are watered or need watering.</p>
     <p id="checking" class="subtitle">Checking subscription status…</p>
 
     <div id="subscribeForm" style="display:none">
-      <input type="text" id="label" placeholder="Your name (e.g. Jake's iPhone)" maxlength="60" />
+      <input type="text" id="label" placeholder="Enter your name" maxlength="60" />
       <button id="btn" onclick="subscribe()">Enable Notifications</button>
     </div>
 
@@ -77,6 +83,10 @@
       <p class="history-link"><a href="/dashboard">View watering history &rarr;</a></p>
     </div>
   </div>
+
+  <p id="unsubscribeRow" style="display:none">
+    <button id="unsubscribeBtn" type="button">Unsubscribe this device</button>
+  </p>
 
   <script>
     (function setupPullToRefresh() {
@@ -172,25 +182,48 @@
     function showSubscribedState() {
       document.getElementById('checking').style.display = 'none';
       document.getElementById('subscribeForm').style.display = 'none';
+      document.getElementById('unsubscribeRow').style.display = 'block';
       renderPlantDashboard();
     }
 
-    (async function init() {
-      const existing = await getExistingSubscription().catch(() => null);
-      if (existing) {
-        // Re-send in the background in case the server dropped this subscription
-        // (e.g. after a failed push) while the browser still holds it.
-        const sub = existing.toJSON();
-        fetch('/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth, label: '' }),
-        }).catch(() => {});
-        showSubscribedState();
-      } else {
-        document.getElementById('checking').style.display = 'none';
-        document.getElementById('subscribeForm').style.display = 'block';
+    async function unsubscribe() {
+      if (!confirm('Stop watering notifications on this device?')) return;
+
+      const btn = document.getElementById('unsubscribeBtn');
+      btn.disabled = true;
+      btn.textContent = 'Unsubscribing…';
+
+      try {
+        const existing = await getExistingSubscription().catch(() => null);
+        if (existing) await existing.unsubscribe().catch(() => {});
+        await fetch('/subscribe', { method: 'DELETE' });
+      } finally {
+        location.href = '/subscribe';
       }
+    }
+
+    document.getElementById('unsubscribeBtn').addEventListener('click', unsubscribe);
+
+    (async function init() {
+      document.getElementById('checking').style.display = 'none';
+
+      // The server already decided whether this device is registered before
+      // serving this page (see the /home <-> /subscribe redirect in
+      // function_app.py) — that redirect is the source of truth, not
+      // whatever push state the browser happens to be holding.
+      if (location.pathname === '/home') {
+        showSubscribedState();
+        return;
+      }
+
+      // We're on /subscribe, which the server only serves to devices it has
+      // no record of. If this browser still has a stale push subscription
+      // (e.g. from an earlier attempt that never completed server-side),
+      // clear it so "Enable Notifications" below starts clean instead of
+      // silently completing a registration with no label.
+      const existing = await getExistingSubscription().catch(() => null);
+      if (existing) await existing.unsubscribe().catch(() => {});
+      document.getElementById('subscribeForm').style.display = 'block';
     })();
 
     async function subscribe() {

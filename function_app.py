@@ -26,6 +26,8 @@ ALLOWED_SUBSCRIBE_IPS = {ip.strip() for ip in _allowed_ips_raw.split(",") if ip.
 DEVICE_COOKIE_NAME = "device_token"
 DEVICE_COOKIE_MAX_AGE = 315360000  # ~10 years
 
+NFC_SCAN_COOLDOWN = timedelta(minutes=2)
+
 
 def _slugify(text: str) -> str:
     text = text.lower().strip()
@@ -109,7 +111,7 @@ def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     plant_id = req.route_params.get("plant_id", "").strip()
-    plant = storage.mark_plant_watered(plant_id)
+    plant = storage.get_plant(plant_id)
     if plant is None:
         return func.HttpResponse(
             "<html><body><h2>Plant not found.</h2></body></html>",
@@ -117,9 +119,24 @@ def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="text/html",
         )
 
-    storage.enqueue_watering_event(plant_id, plant["name"], plant["room"])
-    storage.record_watering_event(plant_id, plant["name"], plant["room"])
-    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    last_watered_str = plant.get("last_watered")
+    already_watered_at = None
+    if last_watered_str:
+        last_watered = datetime.fromisoformat(last_watered_str)
+        if last_watered.tzinfo is None:
+            last_watered = last_watered.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - last_watered < NFC_SCAN_COOLDOWN:
+            already_watered_at = last_watered
+
+    if already_watered_at is not None:
+        # Same scan re-hitting the endpoint (page refresh, double-tap) within the
+        # cooldown — re-show the confirmation without re-notifying or re-logging.
+        now_str = already_watered_at.strftime("%H:%M UTC")
+    else:
+        plant = storage.mark_plant_watered(plant_id)
+        storage.enqueue_watering_event(plant_id, plant["name"], plant["room"])
+        storage.record_watering_event(plant_id, plant["name"], plant["room"])
+        now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -346,6 +363,17 @@ def save_subscription(req: func.HttpRequest) -> func.HttpResponse:
         f"{DEVICE_COOKIE_NAME}={_sign_device_token(row_key)}; "
         f"Max-Age={DEVICE_COOKIE_MAX_AGE}; Path=/; HttpOnly{secure_attr}; SameSite=Lax"
     )
+    return response
+
+
+@app.route(route="subscribe", methods=["DELETE"])
+def delete_subscription_route(req: func.HttpRequest) -> func.HttpResponse:
+    row_key = _get_device_row_key(req)
+    if row_key:
+        storage.delete_subscription(row_key)
+
+    response = _json({"status": "unsubscribed"})
+    response.headers["Set-Cookie"] = f"{DEVICE_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"
     return response
 
 
