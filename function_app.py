@@ -41,11 +41,14 @@ def _error(message: str, status: int = 400) -> func.HttpResponse:
 
 
 def _get_client_ip(req: func.HttpRequest) -> str:
-    # Azure's load balancer forwards the real client IP here
+    # Azure's load balancer forwards the real client IP here, as "ip:port"
     xff = req.headers.get("X-Forwarded-For", "")
-    if xff:
-        return xff.split(",")[0].strip()
-    return "127.0.0.1"  # local dev fallback
+    if not xff:
+        return "127.0.0.1"  # local dev fallback
+    ip = xff.split(",")[0].strip()
+    if ip.count(":") == 1:  # IPv4 with port suffix
+        ip = ip.split(":")[0]
+    return ip
 
 
 # ---------------------------------------------------------------------------
