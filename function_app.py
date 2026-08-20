@@ -100,17 +100,15 @@ def _is_subscribed_device(req: func.HttpRequest) -> bool:
 
 @app.route(route="nfc/{plant_id}", methods=["GET"])
 def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
-    if not _is_subscribed_device(req):
+    plant_id = req.route_params.get("plant_id", "").strip()
+    provided_key = req.params.get("key", "")
+    if not storage.verify_plant_nfc_key(plant_id, provided_key):
         return func.HttpResponse(
-            "<html><body><h2>This device isn't registered.</h2>"
-            "<p>Open <a href=\"/subscribe\">/subscribe</a> from home wifi "
-            "and enable notifications first, then come back and tap the sticker again.</p>"
-            "</body></html>",
+            "<html><body><h2>Invalid or missing tag key.</h2></body></html>",
             status_code=403,
             mimetype="text/html",
         )
 
-    plant_id = req.route_params.get("plant_id", "").strip()
     plant = storage.get_plant(plant_id)
     if plant is None:
         return func.HttpResponse(
@@ -120,23 +118,45 @@ def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     last_watered_str = plant.get("last_watered")
-    already_watered_at = None
+    reuse_existing_event = False
     if last_watered_str:
         last_watered = datetime.fromisoformat(last_watered_str)
         if last_watered.tzinfo is None:
             last_watered = last_watered.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - last_watered < NFC_SCAN_COOLDOWN:
-            already_watered_at = last_watered
+            reuse_existing_event = True
 
-    if already_watered_at is not None:
+    if reuse_existing_event and plant.get("last_watering_event_id"):
         # Same scan re-hitting the endpoint (page refresh, double-tap) within the
-        # cooldown — re-show the confirmation without re-notifying or re-logging.
-        now_str = already_watered_at.strftime("%H:%M UTC")
+        # cooldown — reuse the existing event instead of logging/notifying again.
+        event_id = plant["last_watering_event_id"]
     else:
-        plant = storage.mark_plant_watered(plant_id)
+        event = storage.record_watering_event(plant_id, plant["name"], plant["room"])
+        event_id = event["event_id"]
+        storage.mark_plant_watered(plant_id, event_id)
         storage.enqueue_watering_event(plant_id, plant["name"], plant["room"])
-        storage.record_watering_event(plant_id, plant["name"], plant["room"])
-        now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    # Redirect so a page refresh/back-navigation re-GETs the (idempotent) confirmation
+    # page instead of re-running this handler and double-watering the plant.
+    return _redirect(f"/nfc/{plant_id}/confirmation/{event_id}")
+
+
+@app.route(route="nfc/{plant_id}/confirmation/{event_id}", methods=["GET"])
+def nfc_confirmation(req: func.HttpRequest) -> func.HttpResponse:
+    plant_id = req.route_params.get("plant_id", "").strip()
+    event_id = req.route_params.get("event_id", "").strip()
+    event = storage.get_watering_event(plant_id, event_id)
+    if event is None:
+        return func.HttpResponse(
+            "<html><body><h2>Confirmation not found.</h2></body></html>",
+            status_code=404,
+            mimetype="text/html",
+        )
+
+    watered_at = datetime.fromisoformat(event["watered_at"])
+    if watered_at.tzinfo is None:
+        watered_at = watered_at.replace(tzinfo=timezone.utc)
+    now_str = watered_at.strftime("%H:%M UTC")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -158,13 +178,18 @@ def nfc_scan(req: func.HttpRequest) -> func.HttpResponse:
     .tick {{ font-size: 4rem; margin-bottom: 0.5rem; }}
     h1 {{ margin: 0 0 0.5rem; font-size: 1.6rem; }}
     p {{ margin: 0; color: #666; }}
+    a.home-link {{
+      display: inline-block; margin-top: 1.5rem; color: #2d6a2d;
+      text-decoration: none; font-weight: 600; font-size: 0.95rem;
+    }}
   </style>
 </head>
 <body>
   <div class="card">
     <div class="tick">&#x2705;</div>
-    <h1>{plant['name']} watered!</h1>
-    <p>{plant['room']} &bull; {now_str}</p>
+    <h1>{event['plant_name']} watered!</h1>
+    <p>{event['room']} &bull; {now_str}</p>
+    <a class="home-link" href="/dashboard">&larr; Back to home</a>
   </div>
 </body>
 </html>"""
@@ -436,6 +461,7 @@ def create_plant(req: func.HttpRequest) -> func.HttpResponse:
         return _error(f"Plant '{plant_id}' already exists.", 409)
 
     plant = storage.create_plant(plant_id, body)
+    plant["nfc_url"] = f"/nfc/{plant_id}?key={plant['nfc_key']}"
     return _json(plant, 201)
 
 
@@ -465,3 +491,19 @@ def delete_plant(req: func.HttpRequest) -> func.HttpResponse:
     if not storage.delete_plant(plant_id):
         return _error("Plant not found.", 404)
     return func.HttpResponse(status_code=204)
+
+
+@app.route(route="plants/{plant_id}/nfc-key", methods=["POST"])
+def rotate_nfc_key(req: func.HttpRequest) -> func.HttpResponse:
+    if not _is_subscribed_device(req):
+        return _error("Device not registered. Subscribe from home wifi first.", 403)
+
+    plant_id = req.route_params.get("plant_id", "")
+    nfc_key = storage.rotate_plant_nfc_key(plant_id)
+    if nfc_key is None:
+        return _error("Plant not found.", 404)
+    return _json({
+        "plant_id": plant_id,
+        "nfc_key": nfc_key,
+        "nfc_url": f"/nfc/{plant_id}?key={nfc_key}",
+    })

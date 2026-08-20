@@ -2,6 +2,8 @@ import os
 import uuid
 import json
 import base64
+import hmac
+import secrets
 from datetime import datetime, timezone
 from azure.data.tables import TableServiceClient, TableClient, UpdateMode
 from azure.storage.queue import QueueClient
@@ -69,6 +71,7 @@ def get_plant(plant_id: str) -> "dict | None":
 
 def create_plant(plant_id: str, data: dict) -> dict:
     client = _table_client(PLANTS_TABLE)
+    nfc_key = secrets.token_urlsafe(24)
     entity = {
         "PartitionKey": PLANTS_PK,
         "RowKey": plant_id,
@@ -78,9 +81,12 @@ def create_plant(plant_id: str, data: dict) -> dict:
         "watering_interval_days": float(data["watering_interval_days"]),
         "last_watered": "",
         "last_notification_sent": "",
+        "nfc_key": nfc_key,
     }
     client.create_entity(entity)
-    return _deserialize_plant(entity)
+    plant = _deserialize_plant(entity)
+    plant["nfc_key"] = nfc_key
+    return plant
 
 
 def update_plant(plant_id: str, data: dict) -> "dict | None":
@@ -96,13 +102,14 @@ def update_plant(plant_id: str, data: dict) -> "dict | None":
     return _deserialize_plant(entity)
 
 
-def mark_plant_watered(plant_id: str) -> "dict | None":
+def mark_plant_watered(plant_id: str, event_id: str) -> "dict | None":
     client = _table_client(PLANTS_TABLE)
     try:
         entity = client.get_entity(PLANTS_PK, plant_id)
     except ResourceNotFoundError:
         return None
     entity["last_watered"] = datetime.now(timezone.utc).isoformat()
+    entity["last_watering_event_id"] = event_id
     client.update_entity(entity, mode=UpdateMode.MERGE)
     return _deserialize_plant(entity)
 
@@ -124,6 +131,32 @@ def delete_plant(plant_id: str) -> bool:
         return True
     except ResourceNotFoundError:
         return False
+
+
+def rotate_plant_nfc_key(plant_id: str) -> "str | None":
+    client = _table_client(PLANTS_TABLE)
+    try:
+        entity = client.get_entity(PLANTS_PK, plant_id)
+    except ResourceNotFoundError:
+        return None
+    nfc_key = secrets.token_urlsafe(24)
+    entity["nfc_key"] = nfc_key
+    client.update_entity(entity, mode=UpdateMode.MERGE)
+    return nfc_key
+
+
+def verify_plant_nfc_key(plant_id: str, provided_key: str) -> bool:
+    if not provided_key:
+        return False
+    client = _table_client(PLANTS_TABLE)
+    try:
+        entity = client.get_entity(PLANTS_PK, plant_id)
+    except ResourceNotFoundError:
+        return False
+    expected = entity.get("nfc_key", "")
+    if not expected:
+        return False
+    return hmac.compare_digest(provided_key, expected)
 
 
 # --- Subscriptions ---
@@ -204,6 +237,15 @@ def record_watering_event(plant_id: str, plant_name: str, room: str) -> dict:
     return _deserialize_watering_event(entity)
 
 
+def get_watering_event(plant_id: str, event_id: str) -> "dict | None":
+    client = _table_client(WATERING_EVENTS_TABLE)
+    try:
+        entity = client.get_entity(plant_id, event_id)
+        return _deserialize_watering_event(entity)
+    except ResourceNotFoundError:
+        return None
+
+
 def get_watering_events_since(cutoff_iso: str) -> list:
     client = _table_client(WATERING_EVENTS_TABLE)
     events = [
@@ -225,6 +267,7 @@ def _deserialize_plant(entity: dict) -> dict:
         "watering_interval_days": float(entity.get("watering_interval_days", 7)),
         "last_watered": entity.get("last_watered") or None,
         "last_notification_sent": entity.get("last_notification_sent") or None,
+        "last_watering_event_id": entity.get("last_watering_event_id") or None,
     }
 
 
@@ -240,6 +283,7 @@ def _deserialize_subscription(entity: dict) -> dict:
 
 def _deserialize_watering_event(entity: dict) -> dict:
     return {
+        "event_id": entity["RowKey"],
         "plant_id": entity.get("plant_id", ""),
         "plant_name": entity.get("plant_name", ""),
         "room": entity.get("room", ""),

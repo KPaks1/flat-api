@@ -1,10 +1,15 @@
-#@base = http://localhost:7071
-@base = flat-plants-api.azurewebsites.net
+@base = http://localhost:7071
+#@base = flat-plants-api.azurewebsites.net
 
 # Paste the deployed app's _master key here (Azure Portal > Function App > Functions > App keys,
 # or `az functionapp keys list --name flat-plants-api --resource-group <your-rg>`).
 # Not needed when @base is localhost — the local host doesn't enforce function keys.
 @adminKey = REDACTED_ADMIN_KEY==
+
+# GET /nfc/{plant_id} now requires this plant's secret key as a query param
+# (?key=...). Fetch/rotate it with the "Rotate NFC key" request below and
+# paste the result here.
+@nfcKey = PASTE-KEY-HERE
 
 ### Subscribe this REST client as a device (run once — needed before nfc/plants writes will work)
 # Fake push details are fine locally: ALLOWED_SUBSCRIBE_IPS is empty in local.settings.json so the
@@ -76,24 +81,34 @@ Content-Type: application/json
   "watering_interval_days": 4
 }
 
-### Water a plant
-GET {{base}}/nfc/bathroom-calathea-plant
+### Rotate/fetch the NFC key for a plant (this is the value to write onto the physical tag's URL)
+POST {{base}}/plants/living-room-sunflowers/nfc-key
 
 ### Water a plant
-GET {{base}}/nfc/bathroom-ficus-plant
+GET {{base}}/nfc/bathroom-calathea-plant?key={{nfcKey}}
 
 ### Water a plant
-GET {{base}}/nfc/bathroom-spider-plant
+GET {{base}}/nfc/bathroom-ficus-plant?key={{nfcKey}}
+
+### Water a plant
+GET {{base}}/nfc/bathroom-spider-plant?key={{nfcKey}}
+
+### Water a plant
+GET {{base}}/nfc/living-room-sunflowers?key={{nfcKey}}
 
 ### Delete a plant
 DELETE {{base}}/plants/bathroom-calathea-plant
 ### Delete a plant
 DELETE {{base}}/plants/bathroom-spider-plant
+
+### Delete a plant
+DELETE {{base}}/plants/living-room-sunflowers
+
 ### Delete a plant
 DELETE {{base}}/plants/bathroom-ficus-plant
 
 ### Simulate NFC scan (mark plant as watered)
-GET {{base}}/nfc/bathroom-spider-plant
+GET {{base}}/nfc/bathroom-spider-plant?key={{nfcKey}}
 
 ### Get VAPID public key
 GET {{base}}/vapid-public-key
@@ -106,3 +121,29 @@ x-functions-key: {{adminKey}}
 {
   "input": ""
 }
+
+
+### Get NFC Key
+POST {{base}}/plants/living-room-sunflowers/nfc-key
+Content-Type: application/json
+
+### Get NFC Key
+POST {{base}}/plants/bathroom-ficus-plant/nfc-key
+Content-Type: application/json
+
+### Get NFC Key
+POST {{base}}/plants/bathroom-calathea-plant/nfc-key
+Content-Type: application/json
+
+### Get NFC Key
+POST {{base}}/plants/bathroom-spider-plant/nfc-key
+Content-Type: application/json
+
+### Water plant from tag
+GET {{base}}/nfc/bathroom-calathea-plant?key=REDACTED_NFC_KEY
+
+### Water plant from tag
+GET {{base}}/nfc/bathroom-spider-plant?key=/nfc/bathroom-spider-plant?key=REDACTED_NFC_KEY
+
+### Water plant from tag
+GET {{base}}/nfc/bathroom-ficus-plant?key=REDACTED_NFC_KEY
