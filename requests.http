@@ -1,5 +1,5 @@
-@base = http://localhost:7071
-#@base = flat-plants-api.azurewebsites.net
+#@base = http://localhost:7071
+@base = flat-plants-api.azurewebsites.net
 
 # Paste the deployed app's _master key here (Azure Portal > Function App > Functions > App keys,
 # or `az functionapp keys list --name flat-plants-api --resource-group <your-rg>`).
@@ -122,28 +122,30 @@ x-functions-key: {{adminKey}}
   "input": ""
 }
 
-
-### Get NFC Key
-POST {{base}}/plants/living-room-sunflowers/nfc-key
-Content-Type: application/json
-
-### Get NFC Key
-POST {{base}}/plants/bathroom-ficus-plant/nfc-key
-Content-Type: application/json
-
 ### Get NFC Key
 POST {{base}}/plants/bathroom-calathea-plant/nfc-key
 Content-Type: application/json
+
+### Water plant from tag -local
+GET {{base}}/nfc/nfc/bathroom-calathea-plant?key=REDACTED_NFC_KEY
 
 ### Get NFC Key
 POST {{base}}/plants/bathroom-spider-plant/nfc-key
 Content-Type: application/json
 
-### Water plant from tag
-GET {{base}}/nfc/bathroom-calathea-plant?key=REDACTED_NFC_KEY
+### Water plant from tag - local
+GET {{base}}/nfc/bathroom-spider-plant?key=REDACTED_NFC_KEY
 
-### Water plant from tag
-GET {{base}}/nfc/bathroom-spider-plant?key=/nfc/bathroom-spider-plant?key=REDACTED_NFC_KEY
+### Get NFC Key
+POST {{base}}/plants/bathroom-ficus-plant/nfc-key
+Content-Type: application/json
 
-### Water plant from tag
+### Water plant from tag - local
 GET {{base}}/nfc/bathroom-ficus-plant?key=REDACTED_NFC_KEY
+
+### Get NFC Key
+POST {{base}}/plants/living-room-sunflowers/nfc-key
+Content-Type: application/json
+
+### Water live plants
+GET {{base}}/nfc/living-room-sunflowers?key=REDACTED_NFC_KEY
