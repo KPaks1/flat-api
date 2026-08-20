@@ -312,6 +312,15 @@ def dashboard_page(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("dashboard.html not found", status_code=500)
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
 
+@app.route(route="manifest.json", methods=["GET"])
+def manifest(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        manifest_json = (STATIC_DIR / "manifest.json").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return func.HttpResponse("manifest.json not found", status_code=500)
+    return func.HttpResponse(manifest_json, status_code=200, mimetype="application/manifest+json")
+
+
 @app.route(route="favicon.ico", methods=["GET"])
 def favicon(req: func.HttpRequest) -> func.HttpResponse:
     try:

@@ -17,7 +17,9 @@
       "Bash(curl -s -o /dev/null -w \"plants: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/plants)",
       "Bash(curl -s -o /dev/null -w \"vapid: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/vapid-public-key)",
       "Bash(curl -s -o /dev/null -w \"favicon: %{http_code}\\\\n\" https://flat-plants-api.azurewebsites.net/api/favicon.ico)",
-      "Bash(curl -s https://flat-plants-api.azurewebsites.net/api/favicon.ico)"
+      "Bash(curl -s https://flat-plants-api.azurewebsites.net/api/favicon.ico)",
+      "Bash(python -c \"import PIL; print\\(PIL.__version__\\)\")",
+      "Bash(python -c \"import cairosvg\")"
     ]
   }
 }
