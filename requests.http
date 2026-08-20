@@ -1,5 +1,10 @@
-@base = http://localhost:7071
-#@base = flat-plants-api.azurewebsites.net
+#@base = http://localhost:7071
+@base = flat-plants-api.azurewebsites.net
+
+# Paste the deployed app's _master key here (Azure Portal > Function App > Functions > App keys,
+# or `az functionapp keys list --name flat-plants-api --resource-group <your-rg>`).
+# Not needed when @base is localhost — the local host doesn't enforce function keys.
+@adminKey = REDACTED_ADMIN_KEY==
 
 ### Subscribe this REST client as a device (run once — needed before nfc/plants writes will work)
 # Fake push details are fine locally: ALLOWED_SUBSCRIBE_IPS is empty in local.settings.json so the
@@ -52,6 +57,17 @@ Content-Type: application/json
   "watering_interval_days": 14
 }
 
+### Add another plant
+POST {{base}}/plants
+Content-Type: application/json
+
+{
+  "name": "Sunflowers",
+  "room": "Living Room",
+  "plant_type": "Sunflower",
+  "watering_interval_days": 2
+}
+
 ### Update a plant (change watering interval)
 PUT {{base}}/plants/bathroom-spider-plant
 Content-Type: application/json
@@ -81,3 +97,12 @@ GET {{base}}/nfc/bathroom-spider-plant
 
 ### Get VAPID public key
 GET {{base}}/vapid-public-key
+
+### Manually trigger the watering_check timer (admin API — requires @adminKey against the deployed app)
+POST {{base}}/admin/functions/watering_check
+Content-Type: application/json
+x-functions-key: {{adminKey}}
+
+{
+  "input": ""
+}
