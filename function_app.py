@@ -156,7 +156,8 @@ def nfc_confirmation(req: func.HttpRequest) -> func.HttpResponse:
     watered_at = datetime.fromisoformat(event["watered_at"])
     if watered_at.tzinfo is None:
         watered_at = watered_at.replace(tzinfo=timezone.utc)
-    now_str = watered_at.strftime("%H:%M UTC")
+    watered_at_iso = watered_at.isoformat()
+    fallback_str = watered_at.strftime("%H:%M UTC")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -188,9 +189,18 @@ def nfc_confirmation(req: func.HttpRequest) -> func.HttpResponse:
   <div class="card">
     <div class="tick">&#x2705;</div>
     <h1>{event['plant_name']} watered!</h1>
-    <p>{event['room']} &bull; {now_str}</p>
+    <p>{event['room']} &bull; <time id="watered-time" datetime="{watered_at_iso}">{fallback_str}</time></p>
     <a class="home-link" href="/dashboard">&larr; Back to home</a>
   </div>
+  <script>
+    (function () {{
+      var el = document.getElementById("watered-time");
+      var d = new Date(el.getAttribute("datetime"));
+      if (!isNaN(d.getTime())) {{
+        el.textContent = d.toLocaleTimeString([], {{ hour: "2-digit", minute: "2-digit" }});
+      }}
+    }})();
+  </script>
 </body>
 </html>"""
     return func.HttpResponse(html, status_code=200, mimetype="text/html")
