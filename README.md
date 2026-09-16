@@ -1,6 +1,5 @@
 # Flat Plant API <!-- ci test -->
 
-> **Live:** `https://flat-plants-api.azurewebsites.net`
 > **Repo:** `https://github.com/KPaks1/flat-api`
 > **Deploys:** automatically on push to `master` via GitHub Actions
 
@@ -147,7 +146,7 @@ curl -X DELETE https://<app>.azurewebsites.net/api/plants/bedroom-monstera
 RESOURCE_GROUP="flat-plants-rg"
 LOCATION="uksouth"
 STORAGE_ACCOUNT="flatplantsstore"   # must be globally unique, lowercase
-FUNCTION_APP="flat-plants-api"       # must be globally unique
+FUNCTION_APP="<your-function-app-name>"   # must be globally unique
 
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
@@ -189,7 +188,7 @@ az functionapp cors add \
 
 ```bash
 call .venv\Scripts\activate.bat
-func azure functionapp publish flat-plants-api --python
+func azure functionapp publish "$FUNCTION_APP" --python
 ```
 
 ### Estimated cost
@@ -206,9 +205,9 @@ func azure functionapp publish flat-plants-api --python
 ## Todo
 
 - [ ] **Fix production startup** — functions returning 404 in production; Oryx build settings (`ENABLE_ORYX_BUILD`, `SCM_DO_BUILD_DURING_DEPLOYMENT`) added, redeployment in progress
-- [ ] **Program NFC stickers** — one per plant, URL format: `https://flat-plants-api.azurewebsites.net/api/nfc/<plant-id>`
+- [ ] **Program NFC stickers** — one per plant, URL format: `https://<your-function-app-name>.azurewebsites.net/api/nfc/<plant-id>`
 - [ ] **Add plants** — use `requests.http` in VS Code or curl to POST to `/api/plants`
-- [ ] **Onboard flatmates** — share `https://flat-plants-api.azurewebsites.net/api/subscribe` (note: subscribe whitelist set to `REDACTED_IP`)
+- [ ] **Onboard flatmates** — share `https://<your-function-app-name>.azurewebsites.net/api/subscribe` (note: subscribe whitelist is set via `ALLOWED_SUBSCRIBE_IPS` in app settings)
 - [ ] **Watering token** — add a shared secret to the NFC URL (`?token=xxx`) to prevent anyone with the URL from triggering waterings
 - [ ] **Who watered tracking** — per-device tokens so notifications say which flatmate watered the plant
 

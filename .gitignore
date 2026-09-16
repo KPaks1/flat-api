@@ -1,5 +1,6 @@
 local.settings.json
 private_key.pem
+requests.http
 .venv/
 .python_packages/
 __pycache__/

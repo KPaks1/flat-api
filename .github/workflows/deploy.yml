@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_NAME: flat-plants-api
+  AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
   PYTHON_VERSION: "3.11"
 
 permissions:
